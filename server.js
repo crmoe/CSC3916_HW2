@@ -17,6 +17,23 @@ app.use(passport.initialize());
 
 var router = express.Router();
 
+function getJSONObject(req) {
+    var json = {
+        headers : "No Headers",
+        key: process.env.UNIQUE_KEY,
+        body : "No Body"
+    };
+
+    if (req.body != null) {
+        json.body = req.body;
+    }
+    if (req.headers != null) {
+        json.headers = req.headers;
+    }
+
+    return json;
+}
+
 router.route('/post')
     .post(authController.isAuthenticated, function (req, res) {
             console.log(req.body);
@@ -25,7 +42,8 @@ router.route('/post')
                 console.log("Content-Type: " + req.get('Content-Type'));
                 res = res.type(req.get('Content-Type'));
             }
-            res.send(req.body);
+            var o = getJSONObject(req);
+            res.json(o);
         }
     );
 
@@ -42,7 +60,6 @@ router.route('/postjwt')
     );
 
 router.post('/signup', function(req, res) {
-
     if (!req.body.username || !req.body.password) {
         res.json({success: false, msg: 'Please pass username and password.'});
     } else {
@@ -54,11 +71,7 @@ router.post('/signup', function(req, res) {
         db.save(newUser); //no duplicate checking
         res.json({success: true, msg: 'Successful created new user.'});
     }
-}).all('/signup', function(req, res) {
-    res.status(405).send({success: false, Allow: 'POST', msg: '405 Method not allowed.'});
 });
-
-var token; // had to move this outside function fr use with /movies PUT
 
 router.post('/signin', function(req, res) {
 
@@ -66,60 +79,77 @@ router.post('/signin', function(req, res) {
 
     if (!user) {
         res.status(401).send({success: false, msg: 'Authentication failed. User not found.'});
-    } else {
+    }
+    else {
         // check if password matches
-        if (req.body.password == user.password) {
-            var userToken = {id: user.id, username: user.username};
-            token = jwt.sign(userToken, process.env.UNIQUE_KEY);
+        if (req.body.password === user.password)  {
+            var userToken = { id : user.id, username: user.username };
+            var token = jwt.sign(userToken, process.env.UNIQUE_KEY);
             res.json({success: true, token: 'JWT ' + token});
-        } else {
+        }
+        else {
             res.status(401).send({success: false, msg: 'Authentication failed. Wrong password.'});
         }
     }
-}).all('/signin', function(req, res) {
-    res.status(405).send({success: false, Allow: 'POST', msg: '405 Method not allowed.'});
 });
 
 router.get('/movies', function(req, res) {
-    res.json({
-        success: true,
-        message: 'GET movies',
-        headers: req.headers,
-        query: req.body.query,
-        env: process.env.UNIQUE_KEY});
-}).post('/movies', function(req, res) {
-    res.json({
-        success: true,
-        message: 'movie saved',
-        headers: req.headers,
-        query: req.body.query,
-        env: process.env.UNIQUE_KEY
-    });
-}).put('/movies',authJwtController.isAuthenticated, function(req, res) {
+    var movie = db.find(req.body.movie);
 
-        res.json({
-        success: true,
-        token: 'JWT ' + token,
-        message: 'movie updated',
-        headers: req.headers,
-        query: req.body.query,
-        env: process.env.UNIQUE_KEY
-    });
-}).delete('/movies', authController.isAuthenticated, function(req, res) {
-    res.json({
-        success: true,
-        message: 'movie deleted',
-        headers: req.headers,
-        query: req.body.query,
-        env: process.env.UNIQUE_KEY
-    });
-}).all('/movies', function(req, res) {
-    res.status(405).send({success: false, Allow: ['GET', 'POST', 'PUT', 'DELETE'], msg: '405 Method not allowed.'});
+    if (!movie) {
+        res.status(401).send({success: false, msg: 'Movie does not exist in the database'});
+    }
+    else {
+        res.json({success: true, movie: movie});
+    }
 });
 
-router.all('/', function(req, res) {
-    res.status(400).send({success: false, Allow: 'POST', msg: 'Request to base URL not allowed.'});
+router.post('/movies', function(req, res) {
+    if (!req.body.movie) {
+        res.json({success: false, msg: 'Please pass a movie name'})
+    }
+    else {
+        db.save(req.body.movie);
+        res.json({success: true, msg: 'Movie posted successfuly'})
+    }
+});
+
+router.put('/movies', function(req, res) {
+    var user = db.findOne(req.body.username);
+
+    if (!user) {
+        res.status(401).send({success: false, msg: 'Authentication failed. User not found.'});
+    }
+    else {
+        // check if password matches
+        if (req.body.password === user.password)  {
+            var userToken = { id : user.id, username: user.username };
+            var token = jwt.sign(userToken, process.env.UNIQUE_KEY);
+            db.save(movie);
+            res.json({success: true, msg: 'Movie deleted', token: 'JWT ' + token});
+        }
+        else {
+            res.status(401).send({success: false, msg: 'Authentication failed. Wrong password.'});
+        }
+    }
+});
+
+router.delete('/movies', function(req, res) {
+    var auth = authController.isAuthenticated();
+
+    if (!req.body.username || !req.body.password) {
+        res.json({success: false, msg: 'Please pass username and password.'});
+    }
+    else if (!auth) {
+        res.json({success: false, msg: 'Authentication failed.'});
+    }
+    else {
+        db.remove(req.body.movie);
+        res.json({success: true, msg: 'Successfully deleted movie.'});
+    }
 });
 
 app.use('/', router);
 app.listen(process.env.PORT || 8080);
+
+module.exports = app; // for testing
